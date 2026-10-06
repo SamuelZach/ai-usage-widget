@@ -1,13 +1,13 @@
-# AI Usage — desktop widget for Claude, Codex and OpenCode Go
+# AI Usage — desktop widget for Claude, Codex, Cursor and OpenCode Go
 
 A small native macOS app (Swift/SwiftUI, no Xcode project needed) that shows how much of
-your Claude, ChatGPT/Codex and OpenCode Go allowance you've used, when each window resets,
+your Claude, ChatGPT/Codex, Cursor and OpenCode Go allowance you've used, when each window resets,
 and whether you should burn it or go easy.
 
 - **Desktop panel** — a frosted card that lives on the wallpaper (behind windows, like a
   classic desktop widget). Drag it anywhere; position is remembered.
-- **Menu bar** — weekly % for each service (`72% · 5% · 🔒`); click for the full breakdown
-  and settings.
+- **Menu bar** — budget % for each service (`72% · 5% · 40% · 🔒`); click for the full breakdown
+    and settings.
 - **Advice** — compares budget left vs. time left in the window:
   under pace → "use it up", ahead of pace → "go easy", plus lock / throttle warnings and a
   "best bet right now" pick.
@@ -18,9 +18,10 @@ and whether you should burn it or go easy.
 |---|---|---|
 | Claude | `api.anthropic.com/api/oauth/usage` | Claude Code's Keychain item `Claude Code-credentials` |
 | Codex / ChatGPT | `chatgpt.com/backend-api/wham/usage` | `~/.codex/auth.json` |
+| Cursor | `api2.cursor.sh/.../GetCurrentPeriodUsage` | Cursor IDE `state.vscdb` (`cursorAuth/accessToken`) |
 | OpenCode Go | `opencode.ai/zen/go/v1/usage` | Keychain item `opencode-go-api-key` |
 
-Tokens are refreshed by Claude Code / Codex themselves; if one expires the card says so
+Tokens are refreshed by Claude Code / Codex / Cursor themselves; if one expires the card says so
 ("Login expired — open Claude Code once") and keeps the last good numbers marked *stale*.
 
 ## Build / run
