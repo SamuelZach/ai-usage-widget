@@ -6,8 +6,8 @@ and whether you should burn it or go easy.
 
 - **Desktop panel** — a frosted card that lives on the wallpaper (behind windows, like a
   classic desktop widget). Drag it anywhere; position is remembered.
-- **Menu bar** — budget % for each service (`72% · 5% · 40% · 🔒`); click for the full breakdown
-    and settings.
+- **Menu bar** — compact weekly % for each service (`72%·5%·40%·🔒`), color-coded by hours
+  under/over pace (no “over”/“under” words); click for the full breakdown and settings.
 - **Advice** — compares budget left vs. time left in the window:
   under pace → "use it up", ahead of pace → "go easy", plus lock / throttle warnings and a
   "best bet right now" pick.

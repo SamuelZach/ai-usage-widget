@@ -33,12 +33,46 @@ struct UsageWindow: Identifiable {
         return (100 - percent) / 100 - t
     }
 
+    /// Hours under budget (positive) or over budget (negative): `headroom × window length`.
+    /// Same metric the coarse `pace(at:)` thresholds use, expressed in absolute time.
+    func paceHours(at now: Date) -> Double? {
+        guard let h = headroom(at: now) else { return nil }
+        return h * length / 3600
+    }
+
     func pace(at now: Date) -> Pace {
         if locked || percent >= 100 { return .locked }
         guard let h = headroom(at: now) else { return .unknown }
         if h > 0.15 { return .underPace }
         if h < -0.10 { return .aheadOfPace }
         return .onTrack
+    }
+
+    /// Menu-bar color band from pace hours (positive = under / ahead of schedule).
+    func paceColorBand(at now: Date) -> PaceColorBand? {
+        guard !(locked || percent >= 100) else { return .moreThanDayOver }
+        guard let hours = paceHours(at: now) else { return nil }
+        return PaceColorBand.from(hours: hours)
+    }
+}
+
+/// Fine-grained menu-bar colors by how many hours under (ahead) or over (behind) pace.
+/// Under = under budget; over = over budget. Boundaries in hours of headroom × length.
+enum PaceColorBand: Equatable {
+    case moreThanDayUnder   // > 1 day under → light green
+    case halfToDayUnder     // 12 h … 1 day under → dark green
+    case upToHalfDayUnder   // just under … < 12 h under → light blue
+    case upToHalfDayOver    // on-pace … < 12 h over → dark blue
+    case halfToDayOver      // 12 h … < 1 day over → orange
+    case moreThanDayOver    // ≥ 1 day over (or locked) → red
+
+    static func from(hours: Double) -> PaceColorBand {
+        if hours > 24 { return .moreThanDayUnder }
+        if hours >= 12 { return .halfToDayUnder }
+        if hours > 0 { return .upToHalfDayUnder }
+        if hours > -12 { return .upToHalfDayOver }
+        if hours > -24 { return .halfToDayOver }
+        return .moreThanDayOver
     }
 }
 
