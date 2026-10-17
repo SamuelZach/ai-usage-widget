@@ -178,9 +178,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.autosaveName = "ai-usage"
         if let b = statusItem.button {
-            b.image = NSImage(systemSymbolName: "gauge.with.dots.needle.50percent", accessibilityDescription: "AI usage")
-            b.imagePosition = .imageLeading
-            b.title = " …"
+            // Compact: percentages only (no gauge icon); pace conveyed by color.
+            b.image = nil
+            b.title = "…"
+            b.accessibilityLabel = "AI usage"
         }
         let menu = NSMenu()
         menu.delegate = self
@@ -189,14 +190,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateStatusTitle() {
         guard let b = statusItem?.button else { return }
-        let parts = store.services.map { s -> String in
-            let adv = advice(for: s, at: store.now)
-            if adv.pace == .locked { return "🔒" }
-            if s.error != nil && s.windows.isEmpty { return "?" }
-            return Fmt.percent(s.budgetWindow?.percent ?? 0)
+        b.image = nil
+        let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        let sepAttrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        if store.services.isEmpty {
+            b.attributedTitle = NSAttributedString(string: "…", attributes: sepAttrs)
+            b.toolTip = "AI usage"
+            return
         }
-        b.title = parts.isEmpty ? " …" : " " + parts.joined(separator: " · ")
-        b.toolTip = "Weekly usage — " + store.services.map(\.name).joined(separator: " · ")
+
+        let title = NSMutableAttributedString()
+        for (i, s) in store.services.enumerated() {
+            if i > 0 {
+                title.append(NSAttributedString(string: "·", attributes: sepAttrs))
+            }
+            let adv = advice(for: s, at: store.now)
+            let text: String
+            let color: NSColor
+            if adv.pace == .locked {
+                text = "🔒"
+                color = menuBarNSColor(for: .moreThanDayOver)
+            } else if s.error != nil && s.windows.isEmpty {
+                text = "?"
+                color = .secondaryLabelColor
+            } else {
+                text = Fmt.percent(s.budgetWindow?.percent ?? 0)
+                color = menuBarNSColor(for: s.budgetWindow?.paceColorBand(at: store.now))
+            }
+            title.append(NSAttributedString(string: text, attributes: [
+                .font: font,
+                .foregroundColor: color,
+            ]))
+        }
+        b.attributedTitle = title
+        b.toolTip = store.services.map { s in
+            let adv = advice(for: s, at: store.now)
+            return "\(s.name): \(adv.text)"
+        }.joined(separator: "\n")
+    }
+
+    /// Menu-bar-only colors; panel / dropdown keep existing `Pace.color`.
+    private func menuBarNSColor(for band: PaceColorBand?) -> NSColor {
+        switch band {
+        case .moreThanDayUnder: // light green
+            return NSColor(calibratedRed: 0.45, green: 0.88, blue: 0.55, alpha: 1)
+        case .halfToDayUnder:   // dark green
+            return NSColor(calibratedRed: 0.18, green: 0.62, blue: 0.32, alpha: 1)
+        case .upToHalfDayUnder: // light blue
+            return NSColor(calibratedRed: 0.55, green: 0.78, blue: 1.0, alpha: 1)
+        case .upToHalfDayOver:  // dark blue
+            return NSColor(calibratedRed: 0.22, green: 0.42, blue: 0.82, alpha: 1)
+        case .halfToDayOver:    // orange
+            return NSColor(calibratedRed: 0.95, green: 0.55, blue: 0.18, alpha: 1)
+        case .moreThanDayOver:  // red
+            return NSColor(calibratedRed: 0.92, green: 0.28, blue: 0.28, alpha: 1)
+        case nil:
+            return .secondaryLabelColor
+        }
     }
 
     private func rebuildMenu(_ menu: NSMenu) {
