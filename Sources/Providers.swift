@@ -1,4 +1,5 @@
 import Foundation
+import SQLite3
 
 enum ProviderError: Error {
     case http(Int)
@@ -25,6 +26,34 @@ enum Providers {
         return (s?.isEmpty ?? true) ? nil : s
     }
 
+    /// Cursor stores its session JWT in the IDE's `state.vscdb` (VS Code-style key/value SQLite).
+    /// Read-only so a running Cursor doesn't get blocked; never written by this app.
+    static func cursorStateValue(_ key: String) -> String? {
+        let path = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/Cursor/User/globalStorage/state.vscdb")
+            .path
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            sqlite3_close(db)
+            return nil
+        }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT value FROM ItemTable WHERE key = ?", -1, &stmt, nil) == SQLITE_OK else {
+            return nil
+        }
+        defer { sqlite3_finalize(stmt) }
+        let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+        sqlite3_bind_text(stmt, 1, key, -1, transient)
+        guard sqlite3_step(stmt) == SQLITE_ROW, let c = sqlite3_column_text(stmt, 0) else { return nil }
+        var s = String(cString: c).trimmingCharacters(in: .whitespacesAndNewlines)
+        // VS Code sometimes persists strings as JSON-quoted values.
+        if s.hasPrefix("\""), let decoded = try? JSONDecoder().decode(String.self, from: Data(s.utf8)) {
+            s = decoded
+        }
+        return s.isEmpty ? nil : s
+    }
+
     static func get(_ url: String, headers: [String: String]) async throws -> [String: Any] {
         var req = URLRequest(url: URL(string: url)!)
         req.timeoutInterval = 15
@@ -36,6 +65,36 @@ enum Providers {
             throw ProviderError.parse
         }
         return json
+    }
+
+    static func post(_ url: String, headers: [String: String], body: String = "{}") async throws -> [String: Any] {
+        var req = URLRequest(url: URL(string: url)!)
+        req.httpMethod = "POST"
+        req.timeoutInterval = 15
+        req.httpBody = Data(body.utf8)
+        for (k, v) in headers { req.setValue(v, forHTTPHeaderField: k) }
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard code == 200 else { throw ProviderError.http(code) }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw ProviderError.parse
+        }
+        return json
+    }
+
+    /// Cursor billing-cycle timestamps arrive as unix-ms strings (or numbers).
+    static func cursorMs(_ v: Any?) -> Date? {
+        if let s = v as? String, let n = Double(s) {
+            return Date(timeIntervalSince1970: n > 1e12 ? n / 1000 : n)
+        }
+        if let n = v as? Double {
+            return Date(timeIntervalSince1970: n > 1e12 ? n / 1000 : n)
+        }
+        if let n = v as? Int {
+            let d = Double(n)
+            return Date(timeIntervalSince1970: d > 1e12 ? d / 1000 : d)
+        }
+        return date(v)
     }
 
     static let iso: ISO8601DateFormatter = {
@@ -136,6 +195,41 @@ enum Providers {
         }
     }
 
+    // MARK: - Cursor
+
+    static func cursor() async -> ServiceUsage {
+        let id = "cursor", name = "Cursor"
+        guard let token = cursorStateValue("cursorAuth/accessToken")
+        else { return .failed(id, name, "No Cursor login found") }
+
+        let plan = cursorStateValue("cursorAuth/stripeMembershipType").map { $0.capitalized }
+
+        do {
+            let j = try await post(
+                "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage",
+                headers: [
+                    "Authorization": "Bearer \(token)",
+                    "Content-Type": "application/json",
+                    "Connect-Protocol-Version": "1",
+                ])
+            guard let pu = j["planUsage"] as? [String: Any] else { throw ProviderError.parse }
+            let start = cursorMs(j["billingCycleStart"])
+            let end = cursorMs(j["billingCycleEnd"])
+            let length: TimeInterval = {
+                if let start, let end { return max(end.timeIntervalSince(start), 86400) }
+                return 30 * 86400
+            }()
+            let pct = pu["totalPercentUsed"] as? Double ?? 0
+            let windows = [
+                UsageWindow(id: "month", label: "Month", percent: pct, resetsAt: end,
+                            length: length, locked: pct >= 100),
+            ]
+            return ServiceUsage(id: id, name: name, plan: plan, windows: windows, error: nil, fetchedAt: Date())
+        } catch {
+            return .failed(id, name, describe(error, loginHint: "open Cursor once"))
+        }
+    }
+
     // MARK: - OpenCode Go
 
     static func opencodeGo() async -> ServiceUsage {
@@ -171,7 +265,8 @@ enum Providers {
     static func fetchAll() async -> [ServiceUsage] {
         async let a = claude()
         async let b = codex()
-        async let c = opencodeGo()
-        return await [a, b, c]
+        async let c = cursor()
+        async let d = opencodeGo()
+        return await [a, b, c, d]
     }
 }
