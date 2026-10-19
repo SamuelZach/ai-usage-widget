@@ -1,7 +1,7 @@
-# AI Usage — desktop widget for Claude, Codex, Cursor and OpenCode Go
+# AI Usage — desktop widget for Claude, Codex, Cursor, Grok Bot and OpenCode Go
 
 A small native macOS app (Swift/SwiftUI, no Xcode project needed) that shows how much of
-your Claude, ChatGPT/Codex, Cursor and OpenCode Go allowance you've used, when each window resets,
+your Claude, ChatGPT/Codex, Cursor, Grok Bot and OpenCode Go allowance you've used, when each window resets,
 and whether you should burn it or go easy.
 
 - **Desktop panel** — a frosted card that lives on the wallpaper (behind windows, like a
@@ -19,10 +19,18 @@ and whether you should burn it or go easy.
 | Claude | `api.anthropic.com/api/oauth/usage` | Claude Code's Keychain item `Claude Code-credentials` |
 | Codex / ChatGPT | `chatgpt.com/backend-api/wham/usage` | `~/.codex/auth.json` |
 | Cursor | `api2.cursor.sh/.../GetCurrentPeriodUsage` | Cursor IDE `state.vscdb` (`cursorAuth/accessToken`) |
+| Grok Bot | `api2.cursor.sh/.../GetSandUsageStatus` | Same signed-in Cursor account (`cursorAuth/accessToken`) |
 | OpenCode Go | `opencode.ai/zen/go/v1/usage` | Keychain item `opencode-go-api-key` |
 
 Tokens are refreshed by Claude Code / Codex / Cursor themselves; if one expires the card says so
 ("Login expired — open Claude Code once") and keeps the last good numbers marked *stale*.
+
+Grok Bot shows the separate weekly Bot allowance for the account signed in to Cursor,
+using the same usage query as the Grok Bot desktop app. Cursor's own counter remains
+separate. The order in the menu bar is Claude, Codex, Cursor, Grok Bot, OpenCode Go.
+If Grok Bot is signed into a different account, sign Cursor into that linked account
+for these counters to match. Shared enterprise allowances without an individual
+percentage are shown as unavailable rather than as 0%.
 
 ## Build / run
 
