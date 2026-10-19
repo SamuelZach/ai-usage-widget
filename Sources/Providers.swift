@@ -230,6 +230,46 @@ enum Providers {
         }
     }
 
+    // MARK: - Grok Bot (the separate allowance on a Cursor account)
+
+    static func grokBot() async -> ServiceUsage {
+        let id = "grokbot", name = "Grok Bot"
+        guard let token = cursorStateValue("cursorAuth/accessToken")
+        else { return .failed(id, name, "No Cursor login found — sign in to the linked Cursor account") }
+
+        do {
+            // This is the same DashboardService query the Grok Bot desktop app uses.
+            let j = try await post(
+                "https://api2.cursor.sh/aiserver.v1.DashboardService/GetSandUsageStatus",
+                headers: [
+                    "Authorization": "Bearer \(token)",
+                    "Content-Type": "application/json",
+                    "Connect-Protocol-Version": "1",
+                ])
+            if j["usesPooledEnterpriseAllowance"] as? Bool == true {
+                return .failed(id, name, "Shared team allowance — no individual percentage reported")
+            }
+            guard let pct = j["usagePercent"] as? Double, pct.isFinite, pct >= 0 else {
+                throw ProviderError.parse
+            }
+            let start = date(j["currentPeriodStart"])
+            let end = date(j["nextResetTimestampUtc"])
+            let length: TimeInterval
+            if let start, let end, end > start {
+                length = end.timeIntervalSince(start)
+            } else {
+                length = 7 * 86400
+            }
+            let window = UsageWindow(id: "week", label: "Week", percent: pct,
+                                     resetsAt: end, length: length,
+                                     locked: pct >= 100 || j["hasAvailableUsage"] as? Bool == false)
+            return ServiceUsage(id: id, name: name, plan: j["grokPlanLabel"] as? String,
+                                windows: [window], error: nil, fetchedAt: Date())
+        } catch {
+            return .failed(id, name, describe(error, loginHint: "open Cursor and check the linked account"))
+        }
+    }
+
     // MARK: - OpenCode Go
 
     static func opencodeGo() async -> ServiceUsage {
@@ -266,7 +306,8 @@ enum Providers {
         async let a = claude()
         async let b = codex()
         async let c = cursor()
-        async let d = opencodeGo()
-        return await [a, b, c, d]
+        async let d = grokBot()
+        async let e = opencodeGo()
+        return await [a, b, c, d, e]
     }
 }

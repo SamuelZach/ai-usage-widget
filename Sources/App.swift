@@ -181,7 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Compact: percentages only (no gauge icon); pace conveyed by color.
             b.image = nil
             b.title = "…"
-            b.accessibilityLabel = "AI usage"
+            b.setAccessibilityLabel("AI usage")
         }
         let menu = NSMenu()
         menu.delegate = self
