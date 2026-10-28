@@ -1,9 +1,11 @@
 import Foundation
 import SQLite3
+import CommonCrypto
 
 enum ProviderError: Error {
     case http(Int)
     case parse
+    case cursorCredential(String)
 }
 
 enum Providers {
@@ -52,6 +54,64 @@ enum Providers {
             s = decoded
         }
         return s.isEmpty ? nil : s
+    }
+
+    /// Newer Cursor versions store an Electron Safe Storage envelope in state.vscdb.
+    /// Decode only the access token; never modify Cursor's database or persist plaintext.
+    static func cursorAccessToken() throws -> String? {
+        guard let stored = cursorStateValue("cursorAuth/accessToken") else { return nil }
+        guard stored.hasPrefix("cursor-safe-storage:") else { return stored }
+        let prefix = "cursor-safe-storage:v1:"
+        guard stored.hasPrefix(prefix),
+              let encrypted = Data(base64Encoded: String(stored.dropFirst(prefix.count))),
+              encrypted.starts(with: Data("v10".utf8)) else {
+            throw ProviderError.cursorCredential("Unsupported Cursor login format — update AI Usage")
+        }
+        guard let password = keychain(service: "Cursor Safe Storage") else {
+            throw ProviderError.cursorCredential("Allow access to Cursor Safe Storage in Keychain, then refresh")
+        }
+        guard let token = decryptCursorToken(encrypted, password: password), !token.isEmpty else {
+            throw ProviderError.cursorCredential("Could not read the encrypted Cursor login — open Cursor and refresh")
+        }
+        return token
+    }
+
+    /// Chromium macOS Safe Storage v10: PBKDF2-SHA1 and AES-128-CBC with PKCS7 padding.
+    static func decryptCursorToken(_ encrypted: Data, password: String) -> String? {
+        guard encrypted.starts(with: Data("v10".utf8)) else { return nil }
+        let ciphertext = Data(encrypted.dropFirst(3))
+        guard !ciphertext.isEmpty, ciphertext.count % kCCBlockSizeAES128 == 0 else { return nil }
+        let passwordBytes = Array(password.utf8)
+        let salt = Array("saltysalt".utf8)
+        var key = [UInt8](repeating: 0, count: kCCKeySizeAES128)
+        let derived = passwordBytes.withUnsafeBytes { pass in
+            salt.withUnsafeBufferPointer { saltBytes in
+                key.withUnsafeMutableBufferPointer { keyBytes in
+                    CCKeyDerivationPBKDF(CCPBKDFAlgorithm(kCCPBKDF2),
+                        pass.baseAddress?.assumingMemoryBound(to: Int8.self), passwordBytes.count,
+                        saltBytes.baseAddress, salt.count, CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA1),
+                        1003, keyBytes.baseAddress, keyBytes.count)
+                }
+            }
+        }
+        guard derived == kCCSuccess else { return nil }
+        let iv = [UInt8](repeating: 0x20, count: kCCBlockSizeAES128)
+        var plaintext = [UInt8](repeating: 0, count: ciphertext.count + kCCBlockSizeAES128)
+        var written = 0
+        let status = key.withUnsafeBytes { keyBytes in
+            iv.withUnsafeBytes { ivBytes in
+                ciphertext.withUnsafeBytes { input in
+                    plaintext.withUnsafeMutableBytes { output in
+                        CCCrypt(CCOperation(kCCDecrypt), CCAlgorithm(kCCAlgorithmAES),
+                            CCOptions(kCCOptionPKCS7Padding), keyBytes.baseAddress, key.count,
+                            ivBytes.baseAddress, input.baseAddress, ciphertext.count,
+                            output.baseAddress, output.count, &written)
+                    }
+                }
+            }
+        }
+        guard status == kCCSuccess else { return nil }
+        return String(bytes: plaintext.prefix(written), encoding: .utf8)
     }
 
     static func get(_ url: String, headers: [String: String]) async throws -> [String: Any] {
@@ -115,6 +175,7 @@ enum Providers {
             return "Server returned \(code)"
         }
         if case ProviderError.parse = error { return "Unexpected response" }
+        if case ProviderError.cursorCredential(let message) = error { return message }
         return "Offline"
     }
 
@@ -199,8 +260,13 @@ enum Providers {
 
     static func cursor() async -> ServiceUsage {
         let id = "cursor", name = "Cursor"
-        guard let token = cursorStateValue("cursorAuth/accessToken")
-        else { return .failed(id, name, "No Cursor login found") }
+        let token: String
+        do {
+            guard let value = try cursorAccessToken() else { return .failed(id, name, "No Cursor login found") }
+            token = value
+        } catch {
+            return .failed(id, name, describe(error, loginHint: "open Cursor once"))
+        }
 
         let plan = cursorStateValue("cursorAuth/stripeMembershipType").map { $0.capitalized }
 
@@ -234,8 +300,15 @@ enum Providers {
 
     static func grokBot() async -> ServiceUsage {
         let id = "grokbot", name = "Grok Bot"
-        guard let token = cursorStateValue("cursorAuth/accessToken")
-        else { return .failed(id, name, "No Cursor login found — sign in to the linked Cursor account") }
+        let token: String
+        do {
+            guard let value = try cursorAccessToken() else {
+                return .failed(id, name, "No Cursor login found — sign in to the linked Cursor account")
+            }
+            token = value
+        } catch {
+            return .failed(id, name, describe(error, loginHint: "open Cursor once"))
+        }
 
         do {
             // This is the same DashboardService query the Grok Bot desktop app uses.
