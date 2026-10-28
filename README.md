@@ -22,6 +22,12 @@ and whether you should burn it or go easy.
 | Grok Bot | `api2.cursor.sh/.../GetSandUsageStatus` | Same signed-in Cursor account (`cursorAuth/accessToken`) |
 | OpenCode Go | `opencode.ai/zen/go/v1/usage` | Keychain item `opencode-go-api-key` |
 
+Newer Cursor versions encrypt their saved access token. The widget reads that format
+using the `Cursor Safe Storage` Keychain entry, decrypts only the access token in memory,
+and uses it for the Cursor and Grok Bot usage requests. It does not change Cursor's
+database or save a decrypted token. If macOS asks for Keychain access, allow it to
+read that entry so the counters can refresh.
+
 Tokens are refreshed by Claude Code / Codex / Cursor themselves; if one expires the card says so
 ("Login expired — open Claude Code once") and keeps the last good numbers marked *stale*.
 

@@ -131,6 +131,13 @@ enum Fmt {
         return dateOnly.string(from: d)
     }
 
+    static func paceDifference(hours: Double) -> String {
+        if hours == 0 { return "At pace" }
+        let seconds = abs(hours) * 3600
+        let amount = seconds < 60 ? "<1m" : duration(seconds)
+        return "\(amount) \(hours > 0 ? "under" : "ahead of") pace"
+    }
+
     static func percent(_ p: Double) -> String { "\(Int(p.rounded()))%" }
 }
 
@@ -152,13 +159,14 @@ func advice(for s: ServiceUsage, at now: Date) -> Advice {
     }
     let left = Int((100 - budget.percent).rounded())
     let resets = Fmt.duration(budget.remaining(at: now))
+    let difference = budget.paceHours(at: now).map { Fmt.paceDifference(hours: $0) }
     switch budget.pace(at: now) {
     case .underPace:
-        return Advice(pace: .underPace, text: "Under pace — \(left)% left, resets in \(resets). Use it up.")
+        return Advice(pace: .underPace, text: "\(difference ?? "Under pace") — \(left)% left, resets in \(resets). Use it up.")
     case .aheadOfPace:
-        return Advice(pace: .aheadOfPace, text: "Ahead of pace — \(left)% must last \(resets). Go easy.")
+        return Advice(pace: .aheadOfPace, text: "\(difference ?? "Ahead of pace") — \(left)% must last \(resets). Go easy.")
     case .onTrack:
-        return Advice(pace: .onTrack, text: "On track — \(left)% left, resets in \(resets).")
+        return Advice(pace: .onTrack, text: "On track\(difference.map { " · " + $0 } ?? "") — \(left)% left, resets in \(resets).")
     default:
         return Advice(pace: .unknown, text: "\(left)% left")
     }
