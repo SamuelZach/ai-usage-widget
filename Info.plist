@@ -2,7 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleIdentifier</key><string>com.samuelzach.ai-usage</string>
+  <!-- Keep this identity: Tahoe retained a blocked menu-bar record for the original ID. -->
+  <key>CFBundleIdentifier</key><string>com.samuelzach.ai-usage.recovery</string>
   <key>CFBundleName</key><string>AI Usage</string>
   <key>CFBundleDisplayName</key><string>AI Usage</string>
   <key>CFBundleExecutable</key><string>AI Usage</string>
