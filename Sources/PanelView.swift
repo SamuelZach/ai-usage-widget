@@ -12,6 +12,36 @@ extension Pace {
         case .unknown: return Color.white.opacity(0.55)
         }
     }
+
+    /// Same hues as `color`, darkened on a light menu bar so the text stays readable.
+    func menuBarColor(dark: Bool) -> NSColor {
+        switch self {
+        case .underPace:
+            return dark
+                ? NSColor(srgbRed: 0.36, green: 0.85, blue: 0.55, alpha: 1)
+                : NSColor(srgbRed: 0.10, green: 0.50, blue: 0.26, alpha: 1)
+        case .onTrack:
+            return dark
+                ? NSColor(srgbRed: 0.55, green: 0.72, blue: 1.0, alpha: 1)
+                : NSColor(srgbRed: 0.16, green: 0.36, blue: 0.82, alpha: 1)
+        case .aheadOfPace:
+            return dark
+                ? NSColor(srgbRed: 1.0, green: 0.68, blue: 0.30, alpha: 1)
+                : NSColor(srgbRed: 0.72, green: 0.38, blue: 0.04, alpha: 1)
+        case .throttled:
+            return dark
+                ? NSColor(srgbRed: 1.0, green: 0.55, blue: 0.35, alpha: 1)
+                : NSColor(srgbRed: 0.76, green: 0.30, blue: 0.10, alpha: 1)
+        case .locked:
+            return dark
+                ? NSColor(srgbRed: 1.0, green: 0.45, blue: 0.45, alpha: 1)
+                : NSColor(srgbRed: 0.75, green: 0.16, blue: 0.18, alpha: 1)
+        case .unknown:
+            return dark
+                ? NSColor(white: 1, alpha: 0.65)
+                : NSColor(white: 0, alpha: 0.45)
+        }
+    }
     var symbol: String {
         switch self {
         case .underPace: return "arrow.up.forward.circle.fill"
@@ -118,6 +148,12 @@ struct ServiceCard: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                if let gap = paceGap(for: service, at: now) {
+                    Text(Fmt.paceDelta(gap.interval))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(gap.pace.color)
+                        .help("Time ahead or under an even burn of the \(service.budgetWindow?.label.lowercased() ?? "longest") allowance. 2 days ahead means this usage is where a steady burn would be 2 days from now.")
+                }
                 if service.error != nil, !service.windows.isEmpty {
                     Text("stale").font(.caption2).foregroundStyle(Pace.aheadOfPace.color)
                 }
@@ -159,6 +195,7 @@ struct WindowRow: View {
                 elapsed: 1 - (window.timeLeftFraction(at: now) ?? 0))
             Text(Fmt.percent(window.percent))
                 .font(.system(size: 11, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(pace.color)
                 .frame(width: 36, alignment: .trailing)
             HStack(spacing: 2) {
                 Image(systemName: "arrow.counterclockwise").font(.system(size: 8))

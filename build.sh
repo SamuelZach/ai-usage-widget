@@ -12,6 +12,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 swiftc -O \
   -target "$(uname -m)-apple-macos14.0" \
+  -import-objc-header Sources/CryptoBridge.h \
   Sources/*.swift \
   -o "$APP/Contents/MacOS/AI Usage"
 

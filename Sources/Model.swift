@@ -33,6 +33,15 @@ struct UsageWindow: Identifiable {
         return (100 - percent) / 100 - t
     }
 
+    /// How far usage sits from an even burn, as a duration of this window.
+    /// Positive = ahead of pace. Day 2 of a 10-day window at 40% used is +2 days,
+    /// because that usage is what an even burn would reach on day 4.
+    /// Negative = under pace, by that much spare allowance.
+    func paceInterval(at now: Date) -> TimeInterval? {
+        guard let h = headroom(at: now) else { return nil }
+        return -h * length
+    }
+
     func pace(at now: Date) -> Pace {
         if locked || percent >= 100 { return .locked }
         guard let h = headroom(at: now) else { return .unknown }
@@ -98,6 +107,55 @@ enum Fmt {
     }
 
     static func percent(_ p: Double) -> String { "\(Int(p.rounded()))%" }
+
+    /// "2 days ahead" / "6 hours under" / "on pace". Positive interval is ahead of pace.
+    static func paceDelta(_ interval: TimeInterval) -> String {
+        if abs(interval) < 30 * 60 { return "on pace" }
+        let side = interval > 0 ? "ahead" : "under"
+        return "\(paceSpan(interval)) \(side)"
+    }
+
+    /// Menu-bar form: one unit only, "2d over" or "6h under".
+    static func paceMark(_ interval: TimeInterval) -> String? {
+        if abs(interval) < 30 * 60 { return nil }
+        let side = interval > 0 ? "over" : "under"
+        let minutes = Int((abs(interval) / 60).rounded())
+        if minutes < 60 { return "\(max(minutes, 1))m \(side)" }
+        let hours = Int((abs(interval) / 3600).rounded())
+        if hours < 24 { return "\(hours)h \(side)" }
+        let days = max(1, Int((abs(interval) / 86400).rounded()))
+        return "\(days)d \(side)"
+    }
+
+    /// Whole days and hours read as words; mixed amounts stay short ("1d 16h").
+    static func paceSpan(_ interval: TimeInterval, compact: Bool = false) -> String {
+        let minutes = max(1, Int((abs(interval) / 60).rounded()))
+        if minutes < 60 {
+            if compact { return "\(minutes)m" }
+            return minutes == 1 ? "1 minute" : "\(minutes) minutes"
+        }
+        let hours = Int((abs(interval) / 3600).rounded())
+        if hours < 24 {
+            if compact { return "\(hours)h" }
+            return hours == 1 ? "1 hour" : "\(hours) hours"
+        }
+        let days = hours / 24
+        let rem = hours % 24
+        if rem == 0 {
+            if compact { return "\(days)d" }
+            return days == 1 ? "1 day" : "\(days) days"
+        }
+        return "\(days)d \(rem)h"
+    }
+}
+
+/// Budget-window gap for a subscription, when we actually know where it stands.
+/// `interval` is positive when ahead of pace.
+func paceGap(for s: ServiceUsage, at now: Date) -> (interval: TimeInterval, pace: Pace)? {
+    guard let window = s.budgetWindow, let interval = window.paceInterval(at: now) else { return nil }
+    let pace = window.pace(at: now)
+    guard pace == .underPace || pace == .onTrack || pace == .aheadOfPace else { return nil }
+    return (interval, pace)
 }
 
 func advice(for s: ServiceUsage, at now: Date) -> Advice {
@@ -118,12 +176,19 @@ func advice(for s: ServiceUsage, at now: Date) -> Advice {
     }
     let left = Int((100 - budget.percent).rounded())
     let resets = Fmt.duration(budget.remaining(at: now))
+    let by: String = {
+        guard let interval = budget.paceInterval(at: now), abs(interval) >= 30 * 60 else { return "" }
+        return " by \(Fmt.paceSpan(interval))"
+    }()
     switch budget.pace(at: now) {
     case .underPace:
-        return Advice(pace: .underPace, text: "Under pace — \(left)% left, resets in \(resets). Use it up.")
+        return Advice(pace: .underPace, text: "Under pace\(by) — \(left)% left, resets in \(resets). Use it up.")
     case .aheadOfPace:
-        return Advice(pace: .aheadOfPace, text: "Ahead of pace — \(left)% must last \(resets). Go easy.")
+        return Advice(pace: .aheadOfPace, text: "Ahead of pace\(by) — \(left)% must last \(resets). Go easy.")
     case .onTrack:
+        if let interval = budget.paceInterval(at: now), Fmt.paceDelta(interval) != "on pace" {
+            return Advice(pace: .onTrack, text: "On track, \(Fmt.paceDelta(interval)) — \(left)% left, resets in \(resets).")
+        }
         return Advice(pace: .onTrack, text: "On track — \(left)% left, resets in \(resets).")
     default:
         return Advice(pace: .unknown, text: "\(left)% left")

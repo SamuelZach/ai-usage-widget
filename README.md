@@ -1,7 +1,7 @@
-# AI Usage — desktop widget for Claude, Codex and OpenCode Go
+# AI Usage — desktop widget for Claude, Codex, Cursor and OpenCode Go
 
 A small native macOS app (Swift/SwiftUI, no Xcode project needed) that shows how much of
-your Claude, ChatGPT/Codex and OpenCode Go allowance you've used, when each window resets,
+your Claude, ChatGPT/Codex, Cursor and OpenCode Go allowance you've used, when each window resets,
 and whether you should burn it or go easy.
 
 - **Desktop panel** — a frosted card that lives on the wallpaper (behind windows, like a
@@ -18,10 +18,15 @@ and whether you should burn it or go easy.
 |---|---|---|
 | Claude | `api.anthropic.com/api/oauth/usage` | Claude Code's Keychain item `Claude Code-credentials` |
 | Codex / ChatGPT | `chatgpt.com/backend-api/wham/usage` | `~/.codex/auth.json` |
-| OpenCode Go | `opencode.ai/zen/go/v1/usage` | Keychain item `opencode-go-api-key` |
+| Cursor | `api2.cursor.sh` `GetCurrentPeriodUsage` | Cursor's `cursorAuth/accessToken` in `state.vscdb` (unlocked with the Keychain item `Cursor Safe Storage`) |
+| Grok Bot | `api2.cursor.sh` `GetSandUsageStatus` | The same local Cursor login |
+| OpenCode Go | `opencode.ai/zen/go/v1/usage` | `~/.local/share/opencode/auth.json` (`opencode-go` key) |
 
-Tokens are refreshed by Claude Code / Codex themselves; if one expires the card says so
-("Login expired — open Claude Code once") and keeps the last good numbers marked *stale*.
+Cursor's allowance is the billing-cycle pool (a month on current plans), shown as one bar.
+Grok Bot is a separate pool on that same login. Tokens are refreshed by Claude Code, Codex and
+Cursor themselves; if one expires the card says so ("Login expired — open Cursor once") and keeps
+the last good numbers marked *stale*. The first refresh after install may ask once for Keychain
+access to `Cursor Safe Storage`. Allow that prompt, or the Cursor and Grok Bot rows stay locked.
 
 ## Build / run
 

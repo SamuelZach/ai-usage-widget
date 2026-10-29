@@ -185,30 +185,159 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("AppleInterfaceThemeChangedNotification"),
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.updateStatusTitle() }
+        }
     }
 
     private func updateStatusTitle() {
         guard let b = statusItem?.button else { return }
-        let parts = store.services.map { s -> String in
-            let adv = advice(for: s, at: store.now)
-            if adv.pace == .locked { return "🔒" }
-            if s.error != nil && s.windows.isEmpty { return "?" }
-            return Fmt.percent(s.budgetWindow?.percent ?? 0)
+        guard !store.services.isEmpty else {
+            b.image = NSImage(systemSymbolName: "gauge.with.dots.needle.50percent", accessibilityDescription: "AI usage")
+            b.image?.isTemplate = true
+            b.imagePosition = .imageLeading
+            b.title = " …"
+            b.toolTip = "AI usage"
+            return
         }
-        b.title = parts.isEmpty ? " …" : " " + parts.joined(separator: " · ")
-        b.toolTip = "Weekly usage — " + store.services.map(\.name).joined(separator: " · ")
+        // Drawn as a real image: the menu bar's vibrancy repaints plain title text
+        // in the label color and would wipe the pace colors.
+        let dark = b.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) != .aqua
+        let segments = store.services.map { statusSegment(for: $0) }
+        let image = statusImage(segments: segments, dark: dark)
+        image.isTemplate = false
+        b.title = ""
+        b.imagePosition = .imageOnly
+        b.image = image
+        b.image?.isTemplate = false
+        b.toolTip = segments.map(\.tip).joined(separator: "\n")
+        b.setAccessibilityLabel(segments.map(\.tip).joined(separator: ", "))
+    }
+
+    private struct StatusSegment {
+        let text: String
+        let pace: Pace
+        let tip: String
+    }
+
+    private func statusSegment(for s: ServiceUsage) -> StatusSegment {
+        let adv = advice(for: s, at: store.now)
+        let gap = paceGap(for: s, at: store.now)
+        let percent: String
+        if adv.pace == .locked { percent = "🔒" }
+        else if s.error != nil && s.windows.isEmpty { percent = "?" }
+        else { percent = Fmt.percent(s.budgetWindow?.percent ?? 0) }
+
+        var text = percent
+        var tip = "\(s.name) \(percent)"
+        if let gap, adv.pace != .locked {
+            if let mark = Fmt.paceMark(gap.interval) { text += " \(mark)" }
+            tip += ", \(Fmt.paceDelta(gap.interval))"
+        }
+        if adv.pace == .locked || adv.pace == .throttled || s.error != nil {
+            tip += " — \(adv.text)"
+        }
+        // Lock and throttle win the color so a nearly-spent short window still reads as a warning.
+        let pace: Pace = (adv.pace == .locked || adv.pace == .throttled) ? adv.pace : (gap?.pace ?? adv.pace)
+        return StatusSegment(text: text, pace: pace, tip: tip)
+    }
+
+    /// Gauge plus one colored chunk per subscription. The bar says "2d over"; the menu has the exact gap.
+    private func statusImage(segments: [StatusSegment], dark: Bool) -> NSImage {
+        let barFont = NSFont.menuBarFont(ofSize: 0)
+        let font = NSFont.monospacedDigitSystemFont(ofSize: barFont.pointSize, weight: .medium)
+        let symbolConfig = NSImage.SymbolConfiguration(pointSize: barFont.pointSize, weight: .medium)
+        let symbol = NSImage(systemSymbolName: "gauge.with.dots.needle.50percent", accessibilityDescription: "AI usage")?
+            .withSymbolConfiguration(symbolConfig)
+
+        let measure = NSMutableAttributedString()
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        for (i, seg) in segments.enumerated() {
+            if i > 0 { measure.append(NSAttributedString(string: " · ", attributes: attrs)) }
+            measure.append(NSAttributedString(string: seg.text, attributes: attrs))
+        }
+        let textSize = measure.size()
+        let symbolSize = symbol?.size ?? .zero
+        let spacing: CGFloat = symbolSize.width > 0 ? 4 : 0
+        let size = NSSize(
+            width: ceil(symbolSize.width + spacing + textSize.width),
+            height: ceil(max(symbolSize.height, textSize.height, 16))
+        )
+
+        var symbolColor = dark ? NSColor.white : NSColor.black
+        var separator = symbolColor.withAlphaComponent(0.4)
+        if let appearance = statusItem?.button?.effectiveAppearance {
+            appearance.performAsCurrentDrawingAppearance {
+                symbolColor = NSColor.labelColor.usingColorSpace(.sRGB) ?? symbolColor
+                separator = NSColor.labelColor.withAlphaComponent(0.4).usingColorSpace(.sRGB) ?? separator
+            }
+        }
+
+        let built = NSMutableAttributedString()
+        for (i, seg) in segments.enumerated() {
+            if i > 0 {
+                built.append(NSAttributedString(string: " · ", attributes: [
+                    .font: font,
+                    .foregroundColor: separator,
+                ]))
+            }
+            built.append(NSAttributedString(string: seg.text, attributes: [
+                .font: font,
+                .foregroundColor: seg.pace.menuBarColor(dark: dark),
+            ]))
+        }
+
+        let image = NSImage(size: size, flipped: false) { rect in
+            if let symbol, symbolSize.width > 0 {
+                let symbolRect = NSRect(
+                    x: rect.minX,
+                    y: rect.minY + (rect.height - symbolSize.height) / 2,
+                    width: symbolSize.width,
+                    height: symbolSize.height
+                )
+                NSGraphicsContext.saveGraphicsState()
+                NSBezierPath(rect: symbolRect).setClip()
+                let glyph = symbol.copy() as? NSImage ?? symbol
+                glyph.isTemplate = false
+                glyph.draw(in: symbolRect, from: .zero, operation: .sourceOver, fraction: 1)
+                symbolColor.set()
+                symbolRect.fill(using: .sourceAtop)
+                NSGraphicsContext.restoreGraphicsState()
+            }
+            built.draw(in: NSRect(
+                x: rect.minX + symbolSize.width + spacing,
+                y: rect.minY + (rect.height - textSize.height) / 2,
+                width: textSize.width,
+                height: textSize.height
+            ))
+            return true
+        }
+        image.isTemplate = false
+        return image
     }
 
     private func rebuildMenu(_ menu: NSMenu) {
         menu.removeAllItems()
+        let menuDark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) != .aqua
         for s in store.services {
             let adv = advice(for: s, at: store.now)
-            let title = NSMenuItem(title: s.name + (s.plan.map { " (\($0))" } ?? ""), action: nil, keyEquivalent: "")
+            let name = s.name + (s.plan.map { " (\($0))" } ?? "")
+            let title = NSMenuItem(title: name, action: nil, keyEquivalent: "")
             title.isEnabled = false
-            title.attributedTitle = NSAttributedString(string: title.title, attributes: [
+            let head = NSMutableAttributedString(string: name, attributes: [
                 .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
                 .foregroundColor: NSColor.labelColor,
             ])
+            if let gap = paceGap(for: s, at: store.now) {
+                head.append(NSAttributedString(string: "    \(Fmt.paceDelta(gap.interval))", attributes: [
+                    .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
+                    .foregroundColor: gap.pace.menuBarColor(dark: menuDark),
+                ]))
+            }
+            title.attributedTitle = head
             menu.addItem(title)
             for w in s.windows {
                 let line = "   \(w.label): \(Fmt.percent(w.percent)) used · resets in \(Fmt.duration(w.remaining(at: store.now)))"
@@ -220,7 +349,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             a.isEnabled = false
             a.attributedTitle = NSAttributedString(string: a.title, attributes: [
                 .font: NSFont.systemFont(ofSize: 12),
-                .foregroundColor: NSColor(adv.pace.color),
+                .foregroundColor: adv.pace.menuBarColor(dark: menuDark),
             ])
             menu.addItem(a)
             menu.addItem(.separator())
